@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: yt-dlp-telegram-bot
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: ADMIN_USERIDS
+        sync: false
+      - key: ALLOWED_USERIDS
+        sync: false
+      - key: MAX_SIZE
+        value: 512MB
