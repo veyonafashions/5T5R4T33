@@ -17,7 +17,7 @@ def home():
     return "Bot is running with polling!", 200
 
 def run_flask():
-    flask_app.run(host="0.0.0.0", port=10000)
+    flask_app.run(host="0.0.0.0", port=PORT)
 
 
 # Telegram bot app
@@ -97,13 +97,17 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    import asyncio
-    async def run():
-        await app.initialize()
-        await app.start()
-        print("Bot is running with polling...")
-        await app.updater.start_polling()
-        await app.updater.idle()
+    # Start Telegram bot in a separate thread
+    def run_bot():
+        async def run():
+            await app.initialize()
+            await app.start()
+            print("Bot is running with polling...")
+            await app.updater.start_polling()
+            await app.updater.idle()
+        asyncio.run(run())
 
-    asyncio.run(run())
+    threading.Thread(target=run_bot, daemon=True).start()
+
+    # Start Flask server (for Render health check)
+    flask_app.run(host="0.0.0.0", port=PORT)
