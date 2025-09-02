@@ -1,94 +1,98 @@
 import os
-import asyncio
-from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    ContextTypes, CallbackQueryHandler, filters
-)
+from telegram.ext import Application, CommandHandler
+from telegram import Update
+from flask import Flask, request
 import yt_dlp
+import asyncio
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 8080))
 
-# --- yt-dlp format presets ---
-FORMATS = {
-    "mp3": {"format": "bestaudio", "postprocessors": [{
-        "key": "FFmpegExtractAudio",
-        "preferredcodec": "mp3",
-        "preferredquality": "320",
-    }]},
-    "m4a": {"format": "bestaudio[ext=m4a]/bestaudio"},
-    "360p": {"format": "bestvideo[height<=360]+bestaudio/best[height<=360]"},
-    "720p": {"format": "bestvideo[height<=720]+bestaudio/best[height<=720]"},
-    "1080p": {"format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]"},
-    "4k": {"format": "bestvideo[height<=2160]+bestaudio/best[height<=2160]"},
-}
+# Flask app for webhook endpoint
+flask_app = Flask(__name__)
 
-# --- Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Send me a video URL, and I’ll let you pick format/quality.")
+# Telegram bot app
+app = Application.builder().token(BOT_TOKEN).build()
 
-async def ask_format(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
-    if not url.startswith("http"):
-        await update.message.reply_text("❌ Please send a valid video URL.")
+# ---------- Helper function ----------
+def download_media(url, mode):
+    """
+    mode options:
+      mp3_320  -> MP3 320kbps
+      m4a      -> Best M4A audio
+      bestaudio-> Best audio available
+      mp4      -> Best MP4 video
+      4k       -> Best video up to 4K
+    """
+    ydl_opts = {"outtmpl": "/tmp/%(title)s.%(ext)s"}
+
+    if mode == "mp3_320":
+        ydl_opts.update({
+            "format": "bestaudio/best",
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "320",
+            }]
+        })
+    elif mode == "m4a":
+        ydl_opts.update({"format": "bestaudio[ext=m4a]/bestaudio"})
+    elif mode == "bestaudio":
+        ydl_opts.update({"format": "bestaudio"})
+    elif mode == "mp4":
+        ydl_opts.update({"format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4"})
+    elif mode == "4k":
+        ydl_opts.update({"format": "bestvideo[height<=2160]+bestaudio/best"})
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        return ydl.prepare_filename(info)
+
+# ---------- Handlers ----------
+async def start(update: Update, context):
+    msg = (
+        "🎵 *Audio Options:*\n"
+        " - /download <url> mp3_320 → MP3 320kbps\n"
+        " - /download <url> m4a → M4A\n"
+        " - /download <url> bestaudio → Best available audio\n\n"
+        "🎬 *Video Options:*\n"
+        " - /download <url> mp4 → MP4 (best)\n"
+        " - /download <url> 4k → Up to 4K\n"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+async def download(update: Update, context):
+    if len(context.args) < 2:
+        await update.message.reply_text("Usage: /download <url> <mode>")
         return
 
-    context.user_data["url"] = url
-
-    keyboard = [
-        [InlineKeyboardButton("🎵 MP3 (320kbps)", callback_data="mp3"),
-         InlineKeyboardButton("🎵 M4A", callback_data="m4a")],
-        [InlineKeyboardButton("📹 360p", callback_data="360p"),
-         InlineKeyboardButton("📹 720p", callback_data="720p")],
-        [InlineKeyboardButton("📹 1080p", callback_data="1080p"),
-         InlineKeyboardButton("📹 4K", callback_data="4k")],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text("🔽 Choose format:", reply_markup=reply_markup)
-
-async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-
-    fmt = query.data
-    url = context.user_data.get("url")
-
-    await query.edit_message_text(f"📥 Downloading {fmt.upper()}... please wait.")
+    url, mode = context.args[0], context.args[1]
+    await update.message.reply_text(f"⬇️ Downloading in {mode}...")
 
     loop = asyncio.get_event_loop()
     try:
-        def run_dl():
-            opts = {
-                "outtmpl": "%(title)s.%(ext)s",
-                "merge_output_format": "mp4",
-                "quiet": True,
-                "ffmpeg_location": "/usr/bin/ffmpeg"
-            }
-            opts.update(FORMATS[fmt])
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-                return ydl.prepare_filename(info)
-
-        filename = await loop.run_in_executor(None, run_dl)
-
-        if fmt in ["mp3", "m4a"]:
-            await query.message.reply_audio(audio=open(filename, "rb"))
-        else:
-            await query.message.reply_video(video=open(filename, "rb"))
-
-        os.remove(filename)
-
+        file_path = await loop.run_in_executor(None, download_media, url, mode)
+        await update.message.reply_document(document=open(file_path, "rb"))
     except Exception as e:
-        await query.message.reply_text(f"⚠️ Error: {e}")
+        await update.message.reply_text(f"❌ Error: {e}")
 
-# --- Main ---
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ask_format))
-    app.add_handler(CallbackQueryHandler(download))
-    app.run_polling()
+# Register handlers
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("download", download))
+
+# ---------- Webhook ----------
+@flask_app.post(f"/{BOT_TOKEN}")
+def webhook():
+    data = request.get_json(force=True)
+    app.update_queue.put_nowait(data)
+    return "ok"
 
 if __name__ == "__main__":
-    main()
+    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=BOT_TOKEN,
+        webhook_url=webhook_url,
+    )
+    flask_app.run(host="0.0.0.0", port=PORT)
