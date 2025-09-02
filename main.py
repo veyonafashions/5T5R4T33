@@ -122,11 +122,9 @@ async def webhook():
 if __name__ == "__main__":
     logger.info("Starting Flask server...")
     
-    # Start the bot's webhook
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=BOT_TOKEN,
         webhook_url=WEBHOOK_URL,
-        on_startup=app.initialize
     )
