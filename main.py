@@ -1,20 +1,18 @@
 import os
-import threading
 import asyncio
-import yt_dlp
-from telegram.ext import Application, CommandHandler
+from flask import Flask, request
 from telegram import Update
-from flask import Flask
+from telegram.ext import Application, CommandHandler, ContextTypes
+import yt_dlp
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-PORT = int(os.environ.get("PORT", 8080))
+PORT = int(os.environ.get("PORT", 10000))  # Render exposes this
 
-# Flask app for Render health check
+# Flask app
 flask_app = Flask(__name__)
 
-@flask_app.route("/")
-def home():
-    return "Bot is running with polling!", 200
+# Telegram bot app
+app = Application.builder().token(BOT_TOKEN).build()
 
 
 # ---------- Helper function ----------
@@ -53,20 +51,20 @@ def download_media(url, mode):
 
 
 # ---------- Handlers ----------
-async def start(update: Update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
-        "🎵 Audio Options:\n"
+        "🎵 *Audio Options:*\n"
         " - /download <url> mp3_320 → MP3 320kbps\n"
         " - /download <url> m4a → M4A\n"
         " - /download <url> bestaudio → Best available audio\n\n"
-        "🎬 Video Options:\n"
+        "🎬 *Video Options:*\n"
         " - /download <url> mp4 → MP4 (best)\n"
         " - /download <url> 4k → Up to 4K\n"
     )
-    await update.message.reply_text(msg)
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
-async def download(update: Update, context):
+async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(context.args) < 2:
         await update.message.reply_text("Usage: /download <url> <mode>")
         return
@@ -82,24 +80,26 @@ async def download(update: Update, context):
         await update.message.reply_text(f"❌ Error: {e}")
 
 
-# Telegram bot app
-app = Application.builder().token(BOT_TOKEN).build()
+# Register handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("download", download))
 
 
-# ---------- Run bot + Flask ----------
+# ---------- Flask endpoints ----------
+@flask_app.get("/")
+def home():
+    return "Bot is alive!", 200
+
+
+@flask_app.post(f"/{BOT_TOKEN}")
+async def webhook():
+    data = request.get_json(force=True)
+    update = Update.de_json(data, app.bot)
+    await app.process_update(update)
+    return "ok"
+
+
+# ---------- Main ----------
 if __name__ == "__main__":
-    def run_bot():
-        async def run():
-            await app.initialize()
-            await app.start()
-            print("✅ Bot is running with polling...")
-            await app.updater.start_polling()
-            await app.updater.idle()
-        asyncio.run(run())
-
-    threading.Thread(target=run_bot, daemon=True).start()
-
-    # Flask (for Render)
+    # Start Flask server
     flask_app.run(host="0.0.0.0", port=PORT)
