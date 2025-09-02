@@ -59,7 +59,7 @@ async def start(update: Update, context):
         " - /download <url> mp4 → MP4 (best)\n"
         " - /download <url> 4k → Up to 4K\n"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg, parse_mode="HTML")
 
 async def download(update: Update, context):
     if len(context.args) < 2:
