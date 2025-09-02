@@ -58,17 +58,17 @@ def download_media(url: str, mode: str) -> str:
 
 # ------------------ Handlers ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send help message"""
+    """Send help message with corrected formatting."""
     msg = (
         "🎵 *Audio Options:*\n"
-        " - /download <url> mp3_320 → MP3 320kbps\n"
-        " - /download <url> m4a → M4A\n"
-        " - /download <url> bestaudio → Best available audio\n\n"
+        " - `/download <url> mp3_320` → MP3 320kbps\n"
+        " - `/download <url> m4a` → M4A\n"
+        " - `/download <url> bestaudio` → Best available audio\n\n"
         "🎬 *Video Options:*\n"
-        " - /download <url> mp4 → MP4 (best)\n"
-        " - /download <url> 4k → Up to 4K\n"
+        " - `/download <url> mp4` → MP4 (best)\n"
+        " - `/download <url> 4k` → Up to 4K\n"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg, parse_mode="MarkdownV2")
 
 async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Download requested media"""
