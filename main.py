@@ -88,11 +88,12 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
-    webhook_url = f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}"
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=webhook_url,
-    )
-    flask_app.run(host="0.0.0.0", port=PORT)
+    import asyncio
+    async def run():
+        await app.initialize()
+        await app.start()
+        print("Bot is running with polling...")
+        await app.updater.start_polling()
+        await app.updater.idle()
+
+    asyncio.run(run())
