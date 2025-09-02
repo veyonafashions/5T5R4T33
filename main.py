@@ -1,7 +1,6 @@
 import os
 import asyncio
 import logging
-import threading
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -9,9 +8,11 @@ import yt_dlp
 
 # ------------------ Config ------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-PORT = int(os.getenv("PORT", 10000))  # Render default
+PORT = int(os.getenv("PORT", 10000))
 DOWNLOAD_DIR = "/tmp"
+WEBHOOK_URL = f"https://your-render-url-here.onrender.com/{BOT_TOKEN}"
 
+# Logging
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     level=logging.INFO
@@ -24,13 +25,13 @@ flask_app = Flask(__name__)
 # ------------------ Telegram Bot ------------------
 app = Application.builder().token(BOT_TOKEN).build()
 
-# Create a global event loop running in a thread
-loop = asyncio.new_event_loop()
-threading.Thread(target=loop.run_forever, daemon=True).start()
-
-
 # ------------------ Helper Function ------------------
+# (Your download_media function remains unchanged)
 def download_media(url: str, mode: str) -> str:
+    """
+    Download media using yt_dlp based on mode.
+    Returns the file path.
+    """
     ydl_opts = {"outtmpl": f"{DOWNLOAD_DIR}/%(title)s.%(ext)s"}
 
     if mode == "mp3_320":
@@ -60,6 +61,7 @@ def download_media(url: str, mode: str) -> str:
 
 # ------------------ Handlers ------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send help message"""
     msg = (
         "🎵 *Audio Options:*\n"
         " - /download <url> mp3_320 → MP3 320kbps\n"
@@ -71,8 +73,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
 
-
 async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Download requested media"""
     if len(context.args) < 2:
         await update.message.reply_text("Usage: /download <url> <mode>")
         return
@@ -80,21 +82,26 @@ async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url, mode = context.args[0], context.args[1]
     await update.message.reply_text(f"⬇️ Downloading in `{mode}`...", parse_mode="Markdown")
 
-    loop_ = asyncio.get_running_loop()
     try:
-        file_path = await loop_.run_in_executor(None, download_media, url, mode)
-        file_size = os.path.getsize(file_path)
+        # download_media is a synchronous function, so we run it in a thread pool executor.
+        file_path = await asyncio.to_thread(download_media, url, mode)
 
+        file_size = os.path.getsize(file_path)
         if file_size > 49 * 1024 * 1024:
             await update.message.reply_text("⚠️ File too large for Telegram upload.")
+            os.remove(file_path) # Clean up the file
             return
 
-        await update.message.reply_document(document=open(file_path, "rb"))
+        with open(file_path, "rb") as f:
+            await update.message.reply_document(document=f)
+
+        os.remove(file_path) # Clean up the file after sending
     except Exception as e:
         logger.error(f"Download error: {e}")
         await update.message.reply_text(f"❌ Error: {e}")
 
 
+# Register handlers
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("download", download))
 
@@ -104,20 +111,22 @@ app.add_handler(CommandHandler("download", download))
 def home():
     return "Bot is running!", 200
 
-
+# This is the endpoint that receives updates from Telegram
 @flask_app.post(f"/{BOT_TOKEN}")
-def webhook():
-    try:
-        data = request.get_json(force=True)
-        update = Update.de_json(data, app.bot)
-        asyncio.run_coroutine_threadsafe(app.process_update(update), loop)
-    except Exception as e:
-        logger.error(f"Webhook error: {e}")
+async def webhook():
+    await app.update_queue.put(Update.de_json(request.json, app.bot))
     return "ok", 200
 
 
 # ------------------ Main ------------------
 if __name__ == "__main__":
     logger.info("Starting Flask server...")
-    asyncio.run_coroutine_threadsafe(app.initialize(), loop)
-    flask_app.run(host="0.0.0.0", port=PORT)
+    
+    # Start the bot's webhook
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=BOT_TOKEN,
+        webhook_url=WEBHOOK_URL,
+        on_startup=app.initialize
+    )
