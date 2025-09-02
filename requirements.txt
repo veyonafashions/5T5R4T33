@@ -1,4 +1,4 @@
-python-telegram-bot==20.8
-yt-dlp>=2025.1.1
-ffmpeg-python>=0.2.0
+python-telegram-bot[webhooks]==20.8
+yt-dlp
+ffmpeg-python
 flask
