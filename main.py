@@ -1,7 +1,6 @@
 import os
 import asyncio
 import logging
-from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import yt_dlp
@@ -10,7 +9,9 @@ import yt_dlp
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.getenv("PORT", 10000))
 DOWNLOAD_DIR = "/tmp"
-WEBHOOK_URL = f"https://your-render-url-here.onrender.com/{BOT_TOKEN}"
+
+# You MUST replace this with your actual Render URL
+WEBHOOK_URL = os.getenv("RENDER_EXTERNAL_URL") + f"/{BOT_TOKEN}"
 
 # Logging
 logging.basicConfig(
@@ -19,14 +20,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ------------------ Flask ------------------
-flask_app = Flask(__name__)
-
 # ------------------ Telegram Bot ------------------
 app = Application.builder().token(BOT_TOKEN).build()
 
 # ------------------ Helper Function ------------------
-# (Your download_media function remains unchanged)
 def download_media(url: str, mode: str) -> str:
     """
     Download media using yt_dlp based on mode.
@@ -83,19 +80,17 @@ async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"⬇️ Downloading in `{mode}`...", parse_mode="Markdown")
 
     try:
-        # download_media is a synchronous function, so we run it in a thread pool executor.
         file_path = await asyncio.to_thread(download_media, url, mode)
 
         file_size = os.path.getsize(file_path)
-        if file_size > 49 * 1024 * 1024:
+        # 50MB is the limit for bot API
+        if file_size > 50 * 1024 * 1024:
             await update.message.reply_text("⚠️ File too large for Telegram upload.")
-            os.remove(file_path) # Clean up the file
             return
 
-        with open(file_path, "rb") as f:
-            await update.message.reply_document(document=f)
+        await update.message.reply_document(document=open(file_path, "rb"))
 
-        os.remove(file_path) # Clean up the file after sending
+        os.remove(file_path)
     except Exception as e:
         logger.error(f"Download error: {e}")
         await update.message.reply_text(f"❌ Error: {e}")
@@ -106,22 +101,9 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("download", download))
 
 
-# ------------------ Flask Endpoints ------------------
-@flask_app.get("/")
-def home():
-    return "Bot is running!", 200
-
-# This is the endpoint that receives updates from Telegram
-@flask_app.post(f"/{BOT_TOKEN}")
-async def webhook():
-    await app.update_queue.put(Update.de_json(request.json, app.bot))
-    return "ok", 200
-
-
 # ------------------ Main ------------------
 if __name__ == "__main__":
-    logger.info("Starting Flask server...")
-    
+    logger.info("Starting webhook...")
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
