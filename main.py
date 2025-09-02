@@ -1,27 +1,21 @@
 import os
+import threading
+import asyncio
+import yt_dlp
 from telegram.ext import Application, CommandHandler
 from telegram import Update
-from flask import Flask, request
-import threading
-import yt_dlp
-import asyncio
+from flask import Flask
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 PORT = int(os.environ.get("PORT", 8080))
 
-# Flask app for webhook endpoint
+# Flask app for Render health check
 flask_app = Flask(__name__)
 
 @flask_app.route("/")
 def home():
     return "Bot is running with polling!", 200
 
-def run_flask():
-    flask_app.run(host="0.0.0.0", port=PORT)
-
-
-# Telegram bot app
-app = Application.builder().token(BOT_TOKEN).build()
 
 # ---------- Helper function ----------
 def download_media(url, mode):
@@ -57,18 +51,20 @@ def download_media(url, mode):
         info = ydl.extract_info(url, download=True)
         return ydl.prepare_filename(info)
 
+
 # ---------- Handlers ----------
 async def start(update: Update, context):
     msg = (
-        "🎵 *Audio Options:*\n"
+        "🎵 Audio Options:\n"
         " - /download <url> mp3_320 → MP3 320kbps\n"
         " - /download <url> m4a → M4A\n"
         " - /download <url> bestaudio → Best available audio\n\n"
-        "🎬 *Video Options:*\n"
+        "🎬 Video Options:\n"
         " - /download <url> mp4 → MP4 (best)\n"
         " - /download <url> 4k → Up to 4K\n"
     )
-    await update.message.reply_text(msg, parse_mode="HTML")
+    await update.message.reply_text(msg)
+
 
 async def download(update: Update, context):
     if len(context.args) < 2:
@@ -85,29 +81,25 @@ async def download(update: Update, context):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {e}")
 
-# Register handlers
+
+# Telegram bot app
+app = Application.builder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("download", download))
 
-# ---------- Webhook ----------
-@flask_app.post(f"/{BOT_TOKEN}")
-def webhook():
-    data = request.get_json(force=True)
-    app.update_queue.put_nowait(data)
-    return "ok"
 
+# ---------- Run bot + Flask ----------
 if __name__ == "__main__":
-    # Start Telegram bot in a separate thread
     def run_bot():
         async def run():
             await app.initialize()
             await app.start()
-            print("Bot is running with polling...")
+            print("✅ Bot is running with polling...")
             await app.updater.start_polling()
             await app.updater.idle()
         asyncio.run(run())
 
     threading.Thread(target=run_bot, daemon=True).start()
 
-    # Start Flask server (for Render health check)
+    # Flask (for Render)
     flask_app.run(host="0.0.0.0", port=PORT)
