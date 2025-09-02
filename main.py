@@ -2,6 +2,7 @@ import os
 from telegram.ext import Application, CommandHandler
 from telegram import Update
 from flask import Flask, request
+import threading
 import yt_dlp
 import asyncio
 
@@ -10,6 +11,14 @@ PORT = int(os.environ.get("PORT", 8080))
 
 # Flask app for webhook endpoint
 flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "Bot is running with polling!", 200
+
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=10000)
+
 
 # Telegram bot app
 app = Application.builder().token(BOT_TOKEN).build()
@@ -88,6 +97,7 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
+    threading.Thread(target=run_flask).start()
     import asyncio
     async def run():
         await app.initialize()
