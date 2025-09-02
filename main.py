@@ -111,17 +111,18 @@ def home():
 
 @flask_app.post(f"/{BOT_TOKEN}")
 def webhook():
-    """Handle Telegram webhook update"""
     try:
         data = request.get_json(force=True)
         update = Update.de_json(data, app.bot)
         asyncio.run(app.process_update(update))
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
+        print(f"Webhook error: {e}")
     return "ok", 200
+
 
 
 # ------------------ Main ------------------
 if __name__ == "__main__":
     logger.info("Starting Flask server...")
+    asyncio.run(app.initialize())
     flask_app.run(host="0.0.0.0", port=PORT)
